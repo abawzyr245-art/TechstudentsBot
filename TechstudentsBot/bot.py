@@ -1,8 +1,9 @@
+import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from pathlib import Path
 
-TOKEN = "8864889376:AAHQpVq1DEAQ_xiEY4Rh4lhtzz5fdEfmToc"
+TOKEN = os.getenv("TOKEN")
 
 BASE_DIR = Path(__file__).parent
 
@@ -347,7 +348,7 @@ def main():
         )
     )
 
-    print("✅ البوت يعمل الآن...") 
+    print("✅ البوت يعمل الآن...")
 
     app.run_polling()
 
