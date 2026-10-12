@@ -4,8 +4,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 from pathlib import Path
 
 TOKEN = os.getenv("TOKEN")
-
 BASE_DIR = Path(__file__).parent
+DEVELOPER_NAME = "Ahmed Bawazir"
 
 SUBJECTS = [
     "Computer Skills",
@@ -30,22 +30,40 @@ MODEL_FOLDERS = {
 
 async def show_main(update, context):
     keyboard = [
-        ["📚 الملازم"],
-        ["📝 النماذج"]
+        ["📘 الترم الأول"],
+        ["📗 الترم الثاني"]
     ]
 
     await update.message.reply_text(
-    "📚 أهلاً بك في بوت طلاب التقنية – المستوى الأول\n\n"
-    "👨‍💻 تطوير وبرمجة: Ahmed Bawazir\n\n"
-    "اختر من القائمة:",
-    reply_markup=ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True
+        "📚 أهلاً بك في بوت طلاب التقنية – المستوى الأول\n\n"
+        f"👨‍💻 المطوّر: {DEVELOPER_NAME}\n\n"
+        "اختر الترم الذي تريد الدراسة فيه:",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
     )
-)
+
+
+async def show_term_menu(update, context):
+    keyboard = [
+        ["📚 الملازم"],
+        ["📝 النماذج"],
+        ["🔙 رجوع"]
+    ]
+
+    await update.message.reply_text(
+        "📘 الترم الأول\n\nاختر ما تريد:",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True
+        )
+    )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    context.user_data["term"] = None
     await show_main(update, context)
 
 
@@ -76,10 +94,7 @@ async def show_subject(update, context, subject):
     subject_folder = BASE_DIR / subject
 
     files = sorted(
-        [
-            file for file in subject_folder.glob("*.pdf")
-            if file.is_file()
-        ],
+        [file for file in subject_folder.glob("*.pdf") if file.is_file()],
         key=lambda file: file.name.lower()
     )
 
@@ -90,11 +105,7 @@ async def show_subject(update, context, subject):
         )
         return
 
-    keyboard = [
-        [f"📘 {file.stem}"]
-        for file in files
-    ]
-
+    keyboard = [[f"📘 {file.stem}"] for file in files]
     keyboard.append(["🔙 رجوع"])
 
     await update.message.reply_text(
@@ -137,8 +148,7 @@ async def show_models(update, context, subject):
     ]
 
     await update.message.reply_text(
-        f"📝 نماذج مادة {subject}\n\n"
-        "اختر نوع النماذج:",
+        f"📝 نماذج مادة {subject}\n\nاختر نوع النماذج:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard,
             resize_keyboard=True
@@ -154,25 +164,17 @@ async def show_model_files(update, context, subject, model_type):
     model_folder = MODEL_FOLDERS[subject] / model_type
 
     files = sorted(
-        [
-            file for file in model_folder.glob("*.pdf")
-            if file.is_file()
-        ],
+        [file for file in model_folder.glob("*.pdf") if file.is_file()],
         key=lambda file: file.name.lower()
     )
 
     if not files:
         await update.message.reply_text(
-            f"📝 {model_type}\n\n"
-            "🚧 لا توجد نماذج مضافة حاليًا."
+            f"📝 {model_type}\n\n🚧 لا توجد نماذج مضافة حاليًا."
         )
         return
 
-    keyboard = [
-        [f"📝 {file.stem}"]
-        for file in files
-    ]
-
+    keyboard = [[f"📝 {file.stem}"] for file in files]
     keyboard.append(["🔙 رجوع"])
 
     await update.message.reply_text(
@@ -189,22 +191,16 @@ async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if page == "files":
         await malazem(update, context)
-
     elif page == "model_types":
         await namathij(update, context)
-
     elif page == "model_files":
         subject = context.user_data.get("model_subject")
-
         if subject:
             await show_models(update, context, subject)
         else:
             await namathij(update, context)
-
     elif page in ("subjects", "models"):
-        context.user_data.clear()
-        await show_main(update, context)
-
+        await show_term_menu(update, context)
     else:
         await show_main(update, context)
 
@@ -212,16 +208,47 @@ async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
+    if text == "📘 الترم الأول":
+        context.user_data["term"] = "first"
+        context.user_data["page"] = "term_menu"
+        await show_term_menu(update, context)
+        return
+
+    if text == "📗 الترم الثاني":
+        context.user_data["term"] = "second"
+        await update.message.reply_text(
+            "📗 الترم الثاني\n\n"
+            "🚧 ملفات الترم الثاني غير متوفرة حاليًا.\n"
+            "سيتم إضافتها لاحقًا إن شاء الله.",
+            reply_markup=ReplyKeyboardMarkup(
+                [["🔙 رجوع"]],
+                resize_keyboard=True
+            )
+        )
+        context.user_data["page"] = "second_term"
+        return
+
+    if text == "🔙 رجوع":
+        page = context.user_data.get("page")
+
+        if page in ("term_menu", "second_term"):
+            await show_main(update, context)
+        else:
+            await back(update, context)
+        return
+
+    if context.user_data.get("term") != "first":
+        await update.message.reply_text(
+            "❓ اختر الترم أولًا من القائمة."
+        )
+        return
+
     if text == "📚 الملازم":
         await malazem(update, context)
         return
 
     if text == "📝 النماذج":
         await namathij(update, context)
-        return
-
-    if text == "🔙 رجوع":
-        await back(update, context)
         return
 
     if text in SUBJECTS:
@@ -239,11 +266,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if text in model_subjects:
-        await show_models(
-            update,
-            context,
-            model_subjects[text]
-        )
+        await show_models(update, context, model_subjects[text])
         return
 
     if text in ["📅 نماذج شهرية", "📚 نماذج فصلية"]:
@@ -253,21 +276,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await namathij(update, context)
             return
 
-        if text == "📅 نماذج شهرية":
-            await show_model_files(
-                update,
-                context,
-                subject,
-                "نماذج شهرية"
-            )
-        else:
-            await show_model_files(
-                update,
-                context,
-                subject,
-                "نماذج فصليه"
-            )
+        model_type = (
+            "نماذج شهرية"
+            if text == "📅 نماذج شهرية"
+            else "نماذج فصليه"
+        )
 
+        await show_model_files(
+            update, context, subject, model_type
+        )
         return
 
     subject = context.user_data.get("subject")
@@ -276,23 +293,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subject_folder = BASE_DIR / subject
 
         files = sorted(
-            [
-                file for file in subject_folder.glob("*.pdf")
-                if file.is_file()
-            ],
+            [file for file in subject_folder.glob("*.pdf") if file.is_file()],
             key=lambda file: file.name.lower()
         )
 
         for file in files:
-            button_name = f"📘 {file.stem}"
-
-            if text == button_name:
-                if not file.exists():
-                    await update.message.reply_text(
-                        f"❌ الملف غير موجود:\n{file.name}"
-                    )
-                    return
-
+            if text == f"📘 {file.stem}":
                 await update.message.reply_document(
                     document=file,
                     caption=f"📘 {file.stem}"
@@ -306,23 +312,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         model_folder = MODEL_FOLDERS[model_subject] / model_type
 
         files = sorted(
-            [
-                file for file in model_folder.glob("*.pdf")
-                if file.is_file()
-            ],
+            [file for file in model_folder.glob("*.pdf") if file.is_file()],
             key=lambda file: file.name.lower()
         )
 
         for file in files:
-            button_name = f"📝 {file.stem}"
-
-            if text == button_name:
-                if not file.exists():
-                    await update.message.reply_text(
-                        f"❌ الملف غير موجود:\n{file.name}"
-                    )
-                    return
-
+            if text == f"📝 {file.stem}":
                 await update.message.reply_document(
                     document=file,
                     caption=f"📝 {file.stem}"
@@ -335,12 +330,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    if not TOKEN:
+        raise ValueError(
+            "لم يتم العثور على TOKEN. تحقق من متغير TOKEN في إعدادات التشغيل."
+        )
+
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
-
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -349,9 +346,9 @@ def main():
     )
 
     print("✅ البوت يعمل الآن...")
-
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
+```
