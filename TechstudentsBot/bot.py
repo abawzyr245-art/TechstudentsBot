@@ -1,3 +1,4 @@
+```python
 import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
@@ -6,6 +7,8 @@ from pathlib import Path
 TOKEN = os.getenv("TOKEN")
 
 BASE_DIR = Path(__file__).parent
+
+DEVELOPER_NAME = "Ahmed Bawazir"
 
 SUBJECTS = [
     "Computer Skills",
@@ -36,6 +39,7 @@ async def show_main(update, context):
 
     await update.message.reply_text(
         "📚 أهلاً بك في بوت طلاب التقنية – المستوى الأول\n\n"
+        f"👨‍💻 المطوّر: {DEVELOPER_NAME}\n\n"
         "اختر من القائمة:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard,
@@ -335,6 +339,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    if not TOKEN:
+        raise ValueError(
+            "❌ لم يتم العثور على TOKEN. "
+            "تأكد من ضبط متغير TOKEN في إعدادات التشغيل."
+        )
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(
@@ -349,9 +359,9 @@ def main():
     )
 
     print("✅ البوت يعمل الآن...")
-
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
+```
