@@ -37,7 +37,7 @@ async def show_main(update, context):
     await update.message.reply_text(
         "📚 أهلاً بك في بوت طلاب التقنية – المستوى الأول\n\n"
         "اختر من القائمة:",
-        "تطوير وإدارة:الوزيري",
+        “👨‍💻 تطوير وإدارة: الوزيري”,
         reply_markup=ReplyKeyboardMarkup(
             keyboard,
             resize_keyboard=True
