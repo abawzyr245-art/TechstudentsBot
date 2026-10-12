@@ -1,11 +1,27 @@
 import os
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from pathlib import Path
+
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 TOKEN = os.getenv("TOKEN")
 BASE_DIR = Path(__file__).parent
 DEVELOPER_NAME = "Ahmed Bawazir"
+
+LEVELS = [
+    "المستوى الأول",
+    "المستوى الثاني",
+    "المستوى الثالث",
+    "المستوى الرابع",
+]
+
+TERMS = ["الترم الأول", "الترم الثاني"]
 
 SUBJECTS = [
     "Computer Skills",
@@ -17,91 +33,106 @@ SUBJECTS = [
     "Culture Islamic",
 ]
 
-MODEL_FOLDERS = {
-    "Computer Skills": BASE_DIR / "Computer Skills" / "Models Computer Skills",
-    "Computer Programming": BASE_DIR / "Computer Programming" / "Models Computer Programming",
-    "Discrete Structures": BASE_DIR / "Discrete Structures" / "Models Discrete Structures",
-    "Differential Calculus": BASE_DIR / "Differential Calculus" / "Models Differential Calculus",
-    "Arabic Language": BASE_DIR / "Arabic Language" / "Models Arabic Language",
-    "English Language": BASE_DIR / "English Language" / "Models English Language",
-    "Culture Islamic": BASE_DIR / "Culture Islamic" / "Models Culture Islamic",
-}
+
+def get_subject_folder(context, subject):
+    level = context.user_data.get("level")
+    term = context.user_data.get("term")
+
+    new_folder = BASE_DIR / level / term / subject
+
+    if level == "المستوى الأول" and term == "الترم الأول":
+        if any(new_folder.glob("*.pdf")):
+            return new_folder
+        return BASE_DIR / subject
+
+    return new_folder
 
 
-async def show_main(update, context):
-    keyboard = [
-        ["📘 الترم الأول"],
-        ["📗 الترم الثاني"]
-    ]
-
-    await update.message.reply_text(
-        "📚 أهلاً بك في بوت طلاب التقنية – المستوى الأول\n\n"
-        f"👨‍💻 المطوّر: {DEVELOPER_NAME}\n\n"
-        "اختر الترم الذي تريد الدراسة فيه:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
-    )
+def get_model_folder(context, subject):
+    subject_folder = get_subject_folder(context, subject)
+    return subject_folder / f"Models {subject}"
 
 
-async def show_term_menu(update, context):
-    keyboard = [
-        ["📚 الملازم"],
-        ["📝 النماذج"],
-        ["🔙 رجوع"]
-    ]
-
-    await update.message.reply_text(
-        "📘 الترم الأول\n\nاختر ما تريد:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
+def make_keyboard(rows):
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True
     )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    context.user_data["term"] = None
-    await show_main(update, context)
 
-
-async def malazem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["page"] = "subjects"
-
-    keyboard = [
-        ["Computer Skills", "Computer Programming"],
-        ["Discrete Structures", "Differential Calculus"],
-        ["Arabic Language", "English Language"],
-        ["Culture Islamic"],
-        ["🔙 رجوع"]
-    ]
+    keyboard = [[level] for level in LEVELS]
 
     await update.message.reply_text(
-        "📚 اختر المادة:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
+        "📚 أهلاً بك في بوت طلاب التقنية - المستوى الأول\n\n"
+        f"👨‍💻 المطوّر: {DEVELOPER_NAME}\n\n"
+        "اختر مستواك الدراسي:",
+        reply_markup=make_keyboard(keyboard),
     )
 
 
-async def show_subject(update, context, subject):
-    context.user_data["page"] = "files"
+async def show_terms(update, context):
+    keyboard = [[term] for term in TERMS]
+    keyboard.append(["🔙 رجوع"])
+
+    await update.message.reply_text(
+        f"📚 {context.user_data['level']}\n\nاختر الترم:",
+        reply_markup=make_keyboard(keyboard),
+    )
+
+
+async def show_main_menu(update, context):
+    keyboard = [
+        ["📚 الملازم"],
+        ["📝 النماذج"],
+        ["🔙 رجوع"],
+    ]
+
+    await update.message.reply_text(
+        f"📚 {context.user_data['level']} - "
+        f"{context.user_data['term']}\n\n"
+        "اختر ما تريد:",
+        reply_markup=make_keyboard(keyboard),
+    )
+
+
+async def show_subjects(update, context, page):
+    context.user_data["page"] = page
+
+    if page == "subjects":
+        keyboard = [[subject] for subject in SUBJECTS]
+        title = "📚 اختر المادة لتحميل الملازم:"
+    else:
+        keyboard = [
+            [f"📝 {subject}"] for subject in SUBJECTS
+        ]
+        title = "📝 اختر المادة لعرض النماذج:"
+
+    keyboard.append(["🔙 رجوع"])
+
+    await update.message.reply_text(
+        title,
+        reply_markup=make_keyboard(keyboard),
+    )
+
+
+async def show_subject_files(update, context, subject):
     context.user_data["subject"] = subject
+    context.user_data["page"] = "files"
 
-    subject_folder = BASE_DIR / subject
-
+    folder = get_subject_folder(context, subject)
     files = sorted(
-        [file for file in subject_folder.glob("*.pdf") if file.is_file()],
-        key=lambda file: file.name.lower()
+        folder.glob("*.pdf"),
+        key=lambda file: file.name.lower(),
     )
 
     if not files:
         await update.message.reply_text(
             f"📚 مادة {subject}\n\n"
-            "🚧 لا توجد ملازم مضافة لهذه المادة حاليًا."
+            "🚧 لا توجد ملازم مضافة لهذه المادة حاليًا.",
+            reply_markup=make_keyboard([["🔙 رجوع"]]),
         )
         return
 
@@ -110,67 +141,42 @@ async def show_subject(update, context, subject):
 
     await update.message.reply_text(
         f"📚 ملازم مادة {subject}:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
+        reply_markup=make_keyboard(keyboard),
     )
 
 
-async def namathij(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["page"] = "models"
-
-    keyboard = [
-        ["Models Computer Skills", "Models Computer Programming"],
-        ["Models Discrete Structures", "Models Differential Calculus"],
-        ["Models Arabic Language", "Models English Language"],
-        ["Models Culture Islamic"],
-        ["🔙 رجوع"]
-    ]
-
-    await update.message.reply_text(
-        "📝 اختر المادة:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
-    )
-
-
-async def show_models(update, context, subject):
-    context.user_data["page"] = "model_types"
+async def show_model_types(update, context, subject):
     context.user_data["model_subject"] = subject
+    context.user_data["page"] = "model_types"
 
     keyboard = [
         ["📅 نماذج شهرية"],
         ["📚 نماذج فصلية"],
-        ["🔙 رجوع"]
+        ["🔙 رجوع"],
     ]
 
     await update.message.reply_text(
         f"📝 نماذج مادة {subject}\n\nاختر نوع النماذج:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
+        reply_markup=make_keyboard(keyboard),
     )
 
 
-async def show_model_files(update, context, subject, model_type):
-    context.user_data["page"] = "model_files"
-    context.user_data["model_subject"] = subject
+async def show_model_files(update, context, model_type):
+    subject = context.user_data.get("model_subject")
     context.user_data["model_type"] = model_type
+    context.user_data["page"] = "model_files"
 
-    model_folder = MODEL_FOLDERS[subject] / model_type
-
+    folder = get_model_folder(context, subject) / model_type
     files = sorted(
-        [file for file in model_folder.glob("*.pdf") if file.is_file()],
-        key=lambda file: file.name.lower()
+        folder.glob("*.pdf"),
+        key=lambda file: file.name.lower(),
     )
 
     if not files:
         await update.message.reply_text(
-            f"📝 {model_type}\n\n🚧 لا توجد نماذج مضافة حاليًا."
+            f"📝 {model_type}\n\n"
+            "🚧 لا توجد نماذج مضافة حاليًا.",
+            reply_markup=make_keyboard([["🔙 رجوع"]]),
         )
         return
 
@@ -178,151 +184,109 @@ async def show_model_files(update, context, subject, model_type):
     keyboard.append(["🔙 رجوع"])
 
     await update.message.reply_text(
-        f"📝 {model_type} - {subject}:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True
-        )
+        f"📝 نماذج مادة {subject}:",
+        reply_markup=make_keyboard(keyboard),
     )
 
 
-async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_selected_file(update, context, text):
     page = context.user_data.get("page")
 
     if page == "files":
-        await malazem(update, context)
-    elif page == "model_types":
-        await namathij(update, context)
+        subject = context.user_data.get("subject")
+        folder = get_subject_folder(context, subject)
+        prefix = "📘 "
     elif page == "model_files":
         subject = context.user_data.get("model_subject")
-        if subject:
-            await show_models(update, context, subject)
-        else:
-            await namathij(update, context)
-    elif page in ("subjects", "models"):
-        await show_term_menu(update, context)
+        model_type = context.user_data.get("model_type")
+        folder = get_model_folder(context, subject) / model_type
+        prefix = "📝 "
     else:
-        await show_main(update, context)
+        return False
 
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-
-    if text == "📘 الترم الأول":
-        context.user_data["term"] = "first"
-        context.user_data["page"] = "term_menu"
-        await show_term_menu(update, context)
-        return
-
-    if text == "📗 الترم الثاني":
-        context.user_data["term"] = "second"
-        await update.message.reply_text(
-            "📗 الترم الثاني\n\n"
-            "🚧 ملفات الترم الثاني غير متوفرة حاليًا.\n"
-            "سيتم إضافتها لاحقًا إن شاء الله.",
-            reply_markup=ReplyKeyboardMarkup(
-                [["🔙 رجوع"]],
-                resize_keyboard=True
+    for file in folder.glob("*.pdf"):
+        if text == f"{prefix}{file.stem}":
+            await update.message.reply_document(
+                document=file,
+                caption=file.stem,
             )
-        )
-        context.user_data["page"] = "second_term"
-        return
+            return True
+
+    return False
+
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    text = update.message.text
+    page = context.user_data.get("page")
 
     if text == "🔙 رجوع":
-        page = context.user_data.get("page")
-
-        if page in ("term_menu", "second_term"):
-            await show_main(update, context)
-        else:
-            await back(update, context)
+        if page == "levels" or not page:
+            await start(update, context)
+        elif page == "terms":
+            context.user_data.pop("level", None)
+            await start(update, context)
+        elif page == "main":
+            await show_terms(update, context)
+        elif page in ("subjects", "models"):
+            await show_main_menu(update, context)
+            context.user_data["page"] = "main"
+        elif page == "files":
+            await show_subjects(update, context, "subjects")
+        elif page == "model_types":
+            await show_subjects(update, context, "models")
+        elif page == "model_files":
+            await show_model_types(
+                update,
+                context,
+                context.user_data["model_subject"],
+            )
         return
 
-    if context.user_data.get("term") != "first":
-        await update.message.reply_text(
-            "❓ اختر الترم أولًا من القائمة."
-        )
+    if text in LEVELS:
+        context.user_data["level"] = text
+        context.user_data["page"] = "terms"
+        await show_terms(update, context)
         return
 
-    if text == "📚 الملازم":
-        await malazem(update, context)
+    if text in TERMS:
+        context.user_data["term"] = text
+        context.user_data["page"] = "main"
+        await show_main_menu(update, context)
         return
 
-    if text == "📝 النماذج":
-        await namathij(update, context)
-        return
-
-    if text in SUBJECTS:
-        await show_subject(update, context, text)
-        return
-
-    model_subjects = {
-        "Models Computer Skills": "Computer Skills",
-        "Models Computer Programming": "Computer Programming",
-        "Models Discrete Structures": "Discrete Structures",
-        "Models Differential Calculus": "Differential Calculus",
-        "Models Arabic Language": "Arabic Language",
-        "Models English Language": "English Language",
-        "Models Culture Islamic": "Culture Islamic"
-    }
-
-    if text in model_subjects:
-        await show_models(update, context, model_subjects[text])
-        return
-
-    if text in ["📅 نماذج شهرية", "📚 نماذج فصلية"]:
-        subject = context.user_data.get("model_subject")
-
-        if not subject:
-            await namathij(update, context)
+    if page == "main":
+        if text == "📚 الملازم":
+            await show_subjects(update, context, "subjects")
             return
 
-        model_type = (
-            "نماذج شهرية"
-            if text == "📅 نماذج شهرية"
-            else "نماذج فصليه"
-        )
+        if text == "📝 النماذج":
+            await show_subjects(update, context, "models")
+            return
 
-        await show_model_files(
-            update, context, subject, model_type
-        )
+    if page == "subjects" and text in SUBJECTS:
+        await show_subject_files(update, context, text)
         return
 
-    subject = context.user_data.get("subject")
+    if page == "models" and text.startswith("📝 "):
+        subject = text[3:]
+        if subject in SUBJECTS:
+            await show_model_types(update, context, subject)
+            return
 
-    if subject in SUBJECTS:
-        subject_folder = BASE_DIR / subject
+    if page == "model_types":
+        if text == "📅 نماذج شهرية":
+            await show_model_files(update, context, "نماذج شهرية")
+            return
 
-        files = sorted(
-            [file for file in subject_folder.glob("*.pdf") if file.is_file()],
-            key=lambda file: file.name.lower()
-        )
+        if text == "📚 نماذج فصلية":
+            await show_model_files(update, context, "نماذج فصليه")
+            return
 
-        for file in files:
-            if text == f"📘 {file.stem}":
-                await update.message.reply_document(
-                    document=file,
-                    caption=f"📘 {file.stem}"
-                )
-                return
-
-    model_subject = context.user_data.get("model_subject")
-    model_type = context.user_data.get("model_type")
-
-    if model_subject in MODEL_FOLDERS and model_type:
-        model_folder = MODEL_FOLDERS[model_subject] / model_type
-
-        files = sorted(
-            [file for file in model_folder.glob("*.pdf") if file.is_file()],
-            key=lambda file: file.name.lower()
-        )
-
-        for file in files:
-            if text == f"📝 {file.stem}":
-                await update.message.reply_document(
-                    document=file,
-                    caption=f"📝 {file.stem}"
-                )
-                return
+    if await send_selected_file(update, context, text):
+        return
 
     await update.message.reply_text(
         "❓ اختر أحد الخيارات الموجودة في القائمة."
@@ -332,7 +296,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not TOKEN:
         raise ValueError(
-            "لم يتم العثور على TOKEN. تحقق من متغير TOKEN في إعدادات التشغيل."
+            "لم يتم العثور على TOKEN. تحقق من إعدادات التشغيل."
         )
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -341,7 +305,7 @@ def main():
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            handle_message
+            handle_message,
         )
     )
 
