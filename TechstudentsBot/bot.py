@@ -1,7 +1,9 @@
 import os
+import logging
 from pathlib import Path
 
 from telegram import Update, ReplyKeyboardMarkup
+from telegram.error import TelegramError
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -9,6 +11,12 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TOKEN")
 BASE_DIR = Path(__file__).parent
@@ -23,40 +31,66 @@ LEVELS = [
 
 TERMS = ["الترم الأول", "الترم الثاني"]
 
-SUBJECTS = [
-    "Computer Skills",
-    "Computer Programming",
-    "Discrete Structures",
-    "Differential Calculus",
-    "Arabic Language",
-    "English Language",
-    "Culture Islamic",
-]
-
 MONTHLY_FOLDER = "نماذج شهرية"
 SEMESTER_FOLDER = "نماذج فصليه"
 
 
 def keyboard(rows):
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True,
+    )
 
 
 def get_content_root():
     nested_folder = BASE_DIR / "TechstudentsBot"
 
-    if (nested_folder / LEVELS[0]).is_dir():
+    if any((nested_folder / level).is_dir() for level in LEVELS):
         return nested_folder
 
     return BASE_DIR
 
 
-def get_subject_folder(context):
+def get_term_folder(context):
     return (
         get_content_root()
         / context.user_data["level"]
         / context.user_data["term"]
-        / context.user_data["subject"]
     )
+
+
+def get_subject_folder(context):
+    return get_term_folder(context) / context.user_data["subject"]
+
+
+def get_subject_names(context, models=False):
+    term_folder = get_term_folder(context)
+
+    if not term_folder.is_dir():
+        return []
+
+    subjects = []
+
+    for folder in sorted(
+        term_folder.iterdir(),
+        key=lambda item: item.name.lower(),
+    ):
+        if not folder.is_dir():
+            continue
+
+        if folder.name.startswith("."):
+            continue
+
+        if models:
+            has_monthly = (folder / MONTHLY_FOLDER).is_dir()
+            has_semester = (folder / SEMESTER_FOLDER).is_dir()
+
+            if not (has_monthly or has_semester):
+                continue
+
+        subjects.append(folder.name)
+
+    return subjects
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,7 +101,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 أهلاً بك في بوت طلاب التقنية\n\n"
         f"👨‍💻 تطوير وبرمجة: {DEVELOPER_NAME}\n\n"
         "اختر مستواك الدراسي:",
-        reply_markup=keyboard([[x] for x in LEVELS]),
+        reply_markup=keyboard([[level] for level in LEVELS]),
     )
 
 
@@ -76,7 +110,9 @@ async def show_terms(update, context):
 
     await update.message.reply_text(
         f"📚 {context.user_data['level']}\nاختر الترم:",
-        reply_markup=keyboard([[x] for x in TERMS] + [["🔙 رجوع"]]),
+        reply_markup=keyboard(
+            [[term] for term in TERMS] + [["🔙 رجوع"]]
+        ),
     )
 
 
@@ -84,6 +120,8 @@ async def show_menu(update, context):
     context.user_data["page"] = "main"
 
     await update.message.reply_text(
+        f"📚 {context.user_data['level']} - "
+        f"{context.user_data['term']}\n\n"
         "اختر ما تريد:",
         reply_markup=keyboard([
             ["📚 الملازم"],
@@ -95,13 +133,22 @@ async def show_menu(update, context):
 
 async def show_subjects(update, context, page):
     context.user_data["page"] = page
+    models = page == "models"
+    subjects = get_subject_names(context, models=models)
 
-    if page == "subjects":
-        rows = [[s] for s in SUBJECTS]
-        title = "📚 اختر المادة:"
-    else:
-        rows = [[f"📝 {s}"] for s in SUBJECTS]
+    if not subjects:
+        await update.message.reply_text(
+            "🚧 لا توجد مواد مضافة في هذا الترم حاليًا.",
+            reply_markup=keyboard([["🔙 رجوع"]]),
+        )
+        return
+
+    if models:
+        rows = [[f"📝 {subject}"] for subject in subjects]
         title = "📝 اختر مادة النماذج:"
+    else:
+        rows = [[subject] for subject in subjects]
+        title = "📚 اختر المادة:"
 
     await update.message.reply_text(
         title,
@@ -113,13 +160,16 @@ async def show_files(update, context, folder, page, title):
     context.user_data["page"] = page
 
     files = sorted(
-        folder.glob("*.pdf"),
-        key=lambda f: f.name.lower(),
+        (
+            file for file in folder.iterdir()
+            if file.is_file() and file.suffix.lower() == ".pdf"
+        ),
+        key=lambda file: file.name.lower(),
     ) if folder.is_dir() else []
 
-    if not files:
-        context.user_data["files"] = {}
+    context.user_data["files"] = {}
 
+    if not files:
         await update.message.reply_text(
             f"🚧 لا توجد ملفات PDF في هذا المجلد حاليًا.\n\n"
             f"📂 {folder.name}",
@@ -127,14 +177,21 @@ async def show_files(update, context, folder, page, title):
         )
         return
 
-    context.user_data["files"] = {
-        f.stem: str(f) for f in files
-    }
+    file_buttons = []
+
+    for index, file in enumerate(files):
+        button_text = file.stem
+
+        if button_text in context.user_data["files"]:
+            button_text = f"{button_text} ({index + 1})"
+
+        context.user_data["files"][button_text] = str(file)
+        file_buttons.append([button_text])
 
     await update.message.reply_text(
         title,
         reply_markup=keyboard(
-            [[f.stem] for f in files] + [["🔙 رجوع"]]
+            file_buttons + [["🔙 رجوع"]]
         ),
     )
 
@@ -142,15 +199,62 @@ async def show_files(update, context, folder, page, title):
 async def show_model_types(update, context):
     context.user_data["page"] = "model_types"
 
+    subject_folder = get_subject_folder(context)
+    rows = []
+
+    if (subject_folder / MONTHLY_FOLDER).is_dir():
+        rows.append(["📅 نماذج شهرية"])
+
+    if (subject_folder / SEMESTER_FOLDER).is_dir():
+        rows.append(["📚 نماذج فصلية"])
+
+    if not rows:
+        await update.message.reply_text(
+            "🚧 لم تتم إضافة مجلدات النماذج لهذه المادة بعد.",
+            reply_markup=keyboard([["🔙 رجوع"]]),
+        )
+        return
+
     await update.message.reply_text(
         f"📝 نماذج مادة {context.user_data['subject']}\n"
         "اختر نوع النماذج:",
-        reply_markup=keyboard([
-            ["📅 نماذج شهرية"],
-            ["📚 نماذج فصلية"],
-            ["🔙 رجوع"],
-        ]),
+        reply_markup=keyboard(rows + [["🔙 رجوع"]]),
     )
+
+
+async def send_pdf(update, context, button_text):
+    file_path = context.user_data.get("files", {}).get(button_text)
+
+    if not file_path:
+        return False
+
+    path = Path(file_path)
+
+    if not path.is_file():
+        await update.message.reply_text(
+            "⚠️ الملف غير موجود على الخادم. "
+            "تحقق من رفعه إلى GitHub وإعادة نشر البوت."
+        )
+        return True
+
+    try:
+        with path.open("rb") as pdf:
+            await update.message.reply_document(
+                document=pdf,
+                filename=path.name,
+                caption=path.stem[:1024],
+            )
+
+        return True
+
+    except (OSError, TelegramError):
+        logger.exception("تعذر إرسال الملف: %s", path)
+
+        await update.message.reply_text(
+            "⚠️ تعذر إرسال الملف حاليًا. "
+            "راجع سجل التشغيل في Railway لمعرفة السبب."
+        )
+        return True
 
 
 async def handle_message(
@@ -168,20 +272,13 @@ async def handle_message(
             await start(update, context)
 
         elif page == "main":
-            context.user_data.pop("term", None)
             await show_terms(update, context)
 
-        elif page == "subjects":
-            await show_menu(update, context)
-
-        elif page == "models":
+        elif page in ("subjects", "models"):
             await show_menu(update, context)
 
         elif page == "files":
             await show_subjects(update, context, "subjects")
-
-        elif page == "model_subjects":
-            await show_menu(update, context)
 
         elif page == "model_types":
             await show_subjects(update, context, "models")
@@ -196,11 +293,16 @@ async def handle_message(
 
     if text in LEVELS:
         context.user_data["level"] = text
+        context.user_data.pop("term", None)
+        context.user_data.pop("subject", None)
+        context.user_data.pop("files", None)
         await show_terms(update, context)
         return
 
     if text in TERMS and page == "terms":
         context.user_data["term"] = text
+        context.user_data.pop("subject", None)
+        context.user_data.pop("files", None)
         await show_menu(update, context)
         return
 
@@ -213,31 +315,40 @@ async def handle_message(
 
         return
 
-    if page == "subjects" and text in SUBJECTS:
-        context.user_data["subject"] = text
+    if page == "subjects":
+        if text in get_subject_names(context):
+            context.user_data["subject"] = text
+            subject_folder = get_subject_folder(context)
 
-        subject_folder = get_subject_folder(context)
-        notes_folder = subject_folder / "الملازم"
+            notes_folder = subject_folder / "الملازم"
 
-        if not notes_folder.is_dir():
-            notes_folder = subject_folder
+            if not notes_folder.is_dir():
+                notes_folder = subject_folder
 
-        await show_files(
-            update,
-            context,
-            notes_folder,
-            "files",
-            f"📚 ملازم {text}:",
-        )
+            await show_files(
+                update,
+                context,
+                notes_folder,
+                "files",
+                f"📚 ملازم {text}:",
+            )
+        else:
+            await update.message.reply_text(
+                "❓ اختر مادة من القائمة الحالية."
+            )
         return
 
-    if page == "models" and text.startswith("📝 "):
-        subject = text[3:]
+    if page == "models":
+        if text.startswith("📝 "):
+            subject = text[3:]
 
-        if subject in SUBJECTS:
-            context.user_data["subject"] = subject
-            await show_model_types(update, context)
-
+            if subject in get_subject_names(context, models=True):
+                context.user_data["subject"] = subject
+                await show_model_types(update, context)
+            else:
+                await update.message.reply_text(
+                    "❓ اختر مادة من القائمة الحالية."
+                )
         return
 
     if page == "model_types":
@@ -260,15 +371,9 @@ async def handle_message(
         return
 
     if page in ("files", "model_files"):
-        file_path = context.user_data.get("files", {}).get(text)
+        handled = await send_pdf(update, context, text)
 
-        if file_path and Path(file_path).is_file():
-            with open(file_path, "rb") as pdf:
-                await update.message.reply_document(
-                    document=pdf,
-                    caption=Path(file_path).stem,
-                )
-
+        if handled:
             return
 
     await update.message.reply_text(
@@ -291,7 +396,7 @@ def main():
         )
     )
 
-    print("البوت يعمل الآن...")
+    logger.info("البوت يعمل الآن...")
     app.run_polling()
 
 
