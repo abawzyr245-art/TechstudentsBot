@@ -63,6 +63,18 @@ def get_subject_folder(context):
     return get_term_folder(context) / context.user_data["subject"]
 
 
+def get_models_folder(context):
+    subject_folder = get_subject_folder(context)
+    models_folder = subject_folder / (
+        f"Models {context.user_data['subject']}"
+    )
+
+    if models_folder.is_dir():
+        return models_folder
+
+    return subject_folder
+
+
 def get_subject_names(context, models=False):
     term_folder = get_term_folder(context)
 
@@ -82,8 +94,18 @@ def get_subject_names(context, models=False):
             continue
 
         if models:
-            has_monthly = (folder / MONTHLY_FOLDER).is_dir()
-            has_semester = (folder / SEMESTER_FOLDER).is_dir()
+            models_folder = folder / f"Models {folder.name}"
+
+            if not models_folder.is_dir():
+                models_folder = folder
+
+            has_monthly = (
+                models_folder / MONTHLY_FOLDER
+            ).is_dir()
+
+            has_semester = (
+                models_folder / SEMESTER_FOLDER
+            ).is_dir()
 
             if not (has_monthly or has_semester):
                 continue
@@ -171,7 +193,7 @@ async def show_files(update, context, folder, page, title):
 
     if not files:
         await update.message.reply_text(
-            f"🚧 لا توجد ملفات PDF في هذا المجلد حاليًا.\n\n"
+            "🚧 لا توجد ملفات PDF في هذا المجلد حاليًا.\n\n"
             f"📂 {folder.name}",
             reply_markup=keyboard([["🔙 رجوع"]]),
         )
@@ -199,13 +221,13 @@ async def show_files(update, context, folder, page, title):
 async def show_model_types(update, context):
     context.user_data["page"] = "model_types"
 
-    subject_folder = get_subject_folder(context)
+    models_folder = get_models_folder(context)
     rows = []
 
-    if (subject_folder / MONTHLY_FOLDER).is_dir():
+    if (models_folder / MONTHLY_FOLDER).is_dir():
         rows.append(["📅 نماذج شهرية"])
 
-    if (subject_folder / SEMESTER_FOLDER).is_dir():
+    if (models_folder / SEMESTER_FOLDER).is_dir():
         rows.append(["📚 نماذج فصلية"])
 
     if not rows:
@@ -352,11 +374,13 @@ async def handle_message(
         return
 
     if page == "model_types":
+        models_folder = get_models_folder(context)
+
         if text == "📅 نماذج شهرية":
-            folder = get_subject_folder(context) / MONTHLY_FOLDER
+            folder = models_folder / MONTHLY_FOLDER
 
         elif text == "📚 نماذج فصلية":
-            folder = get_subject_folder(context) / SEMESTER_FOLDER
+            folder = models_folder / SEMESTER_FOLDER
 
         else:
             return
