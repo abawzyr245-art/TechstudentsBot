@@ -51,6 +51,7 @@ def keyboard(rows):
     return ReplyKeyboardMarkup(
         rows,
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
